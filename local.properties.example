@@ -1,0 +1,6 @@
+# Copy to local.properties if you build from the command line without Android Studio.
+# Point this at your Android SDK.
+#   Linux  : /home/<user>/Android/Sdk
+#   macOS  : /Users/<user>/Library/Android/sdk
+#   Windows: C\:\\Users\\<user>\\AppData\\Local\\Android\\Sdk
+sdk.dir=/home/user/Android/Sdk
