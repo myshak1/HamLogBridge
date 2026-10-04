@@ -1,15 +1,15 @@
 # HamLog Bridge
 
-Aplikacja Android, która nasłuchuje datagramów UDP w formacie **WSJT-X Message Protocol**
-(to samo, czego słuchają GridTracker, WsjtxWatcher, Log4OM czy JTAlert), zapisuje z nich
-QSO i rozsyła je do zewnętrznych logów online.
+An Android app that listens for UDP datagrams in the **WSJT-X Message Protocol** format
+(the same stream GridTracker, WsjtxWatcher, Log4OM and JTAlert consume), records QSOs
+from it and forwards them to external online logs.
 
-Zaprojektowana pod zmodyfikowane Xiegu X6100 z FT8 i wysyłką UDP przez WiFi, ale działa
-z dowolnym nadajnikiem tego protokołu — także z WSJT-X/JTDX na PC.
+Designed for a modified Xiegu X6100 with FT8 and UDP output over WiFi, but it works
+with any sender of this protocol, including WSJT-X/JTDX on a PC.
 
 ---
 
-## Co robi
+## What it does
 
 ```
    X6100 (FT8, WiFi)
@@ -18,15 +18,15 @@ z dowolnym nadajnikiem tego protokołu — także z WSJT-X/JTDX na PC.
    ┌─────────────────────────────────────────┐
    │  BridgeService (foreground)             │
    │  · WifiLock + MulticastLock + WakeLock  │
-   │  · dekoder QDataStream                  │
+   │  · QDataStream decoder                  │
    └───────┬───────────────────┬─────────────┘
            │                   │
            │ raw relay         │ QSO Logged (5) / Logged ADIF (12)
            ▼                   ▼
-   GridTracker,           Room DB + plik ADIF
+   GridTracker,           Room DB + ADIF file
    Log4OM, N1MM      ┌────────┴──────────────────────────┐
-   na PC             ▼                                   ▼
-                 WorkManager (retry z backoffem)   lokalny .adi
+   on a PC           ▼                                   ▼
+                 WorkManager (retry with backoff)   local .adi
                      │
      ┌───────────────┼───────────────┬──────────┬─────────┐
      ▼               ▼               ▼          ▼         ▼
@@ -34,76 +34,77 @@ z dowolnym nadajnikiem tego protokołu — także z WSJT-X/JTDX na PC.
   Wavelog         Logbook        realtime   .net       .cc
 ```
 
-## Obsługiwane typy komunikatów
+## Supported message types
 
-| Typ | Nazwa | Zastosowanie |
-|-----|-------|--------------|
-| 0 | Heartbeat | wykrycie źródła |
-| 1 | Status | częstotliwość, mod, DE/DX call, stan TX |
-| 2 | Decode | lista dekodów na ekranie Monitor |
-| 3 | Clear | czyszczenie listy dekodów |
-| 5 | QSO Logged | **główne źródło logu** — budowany jest z niego rekord ADIF |
-| 6 | Close | zamknięcie sesji |
-| 10 | WSPR Decode | parsowane, na razie nieużywane |
-| 12 | Logged ADIF | gotowy rekord ADIF; jeśli dotyczy tego samego QSO co typ 5, **uzupełnia** istniejący wpis zamiast go duplikować |
+| Type | Name | Used for |
+|------|------|----------|
+| 0 | Heartbeat | source detection |
+| 1 | Status | frequency, mode, DE/DX call, TX state |
+| 2 | Decode | decode list on the Monitor screen |
+| 3 | Clear | clearing the decode list |
+| 5 | QSO Logged | **main log source**, the ADIF record is built from it |
+| 6 | Close | end of session |
+| 10 | WSPR Decode | parsed, currently unused |
+| 12 | Logged ADIF | ready-made ADIF record; if it refers to the same QSO as type 5, it **enriches** the existing entry instead of duplicating it |
 
-Dekoder jest tolerancyjny: pola w protokole były zawsze tylko dopisywane na końcu, więc
-uproszczona implementacja (np. firmware, który wypełnia tylko 2–3 pierwsze pola `Status`)
-jest obsłużona bez wyjątku. Pakiety spoza protokołu są ignorowane i odnotowane w Event trace.
+The decoder is tolerant: fields in the protocol have only ever been appended at the end,
+so simplified implementations (e.g. firmware that fills in only the first 2–3 `Status`
+fields) are handled without exceptions. Non-protocol packets are ignored and recorded in
+the Event trace.
 
-## Deduplikacja
+## Deduplication
 
-Klucz `CALL | YYYYMMDDHHMM (UTC) | pasmo`. WSJT-X wysyła to samo QSO dwa razy
-(typ 5 i typ 12) — drugi komunikat wzbogaca istniejący rekord zamiast tworzyć nowy.
-Kolumna w bazie ma indeks UNIQUE, więc ponowne wysłanie tego samego pakietu nic nie psuje.
+Key: `CALL | YYYYMMDDHHMM (UTC) | band`. WSJT-X sends the same QSO twice (type 5 and
+type 12), so the second message enriches the existing record instead of creating a new one.
+The database column has a UNIQUE index, so receiving the same packet again breaks nothing.
 
-## Integracje
+## Integrations
 
-| Logger | Endpoint | Wymagane dane |
+| Logger | Endpoint | Required data |
 |--------|----------|---------------|
-| Cloudlog / Wavelog | `POST {base}/index.php/api/qso` | URL, klucz API (RW), id profilu stacji |
-| QRZ.com Logbook | `POST logbook.qrz.com/api` (`ACTION=INSERT`) | klucz API logbooka |
-| Club Log | `POST clublog.org/realtime.php` | e-mail, hasło, znak, klucz API |
-| HRDLog.net | `POST robot.hrdlog.net/NewEntry.aspx` | znak + kod uploadu |
-| eQSL.cc | `POST eqsl.cc/qslcard/importADIF.cfm` | user, hasło, opcjonalnie nickname QTH |
-| Webhook | dowolny URL, ADIF albo JSON, własne nagłówki | URL |
-| Plik ADIF | `Android/data/pl.hamlogbridge/files/Documents/HamLogBridge/` | — (zawsze włączony) |
+| Cloudlog / Wavelog | `POST {base}/index.php/api/qso` | URL, API key (RW), station profile id |
+| QRZ.com Logbook | `POST logbook.qrz.com/api` (`ACTION=INSERT`) | logbook API key |
+| Club Log | `POST clublog.org/realtime.php` | e-mail, password, callsign, API key |
+| HRDLog.net | `POST robot.hrdlog.net/NewEntry.aspx` | callsign + upload code |
+| eQSL.cc | `POST eqsl.cc/qslcard/importADIF.cfm` | user, password, optional QTH nickname |
+| Webhook | any URL, ADIF or JSON, custom headers | URL |
+| ADIF file | `Android/data/pl.hamlogbridge/files/Documents/HamLogBridge/` | none (always on) |
 
-Rozróżniane są błędy **przejściowe** (brak sieci, 5xx, 429 → ponawianie z wykładniczym
-backoffem, do 12 prób) i **trwałe** (zły klucz, 401/403, odrzucony rekord → status FAILED
-i przycisk „Retry" po poprawieniu ustawień). Duplikaty po stronie serwera traktowane są
-jako sukces.
+Errors are split into **transient** (no network, 5xx, 429 → retried with exponential
+backoff, up to 12 attempts) and **permanent** (bad key, 401/403, rejected record → FAILED
+status and a "Retry" button once the settings are fixed). Server-side duplicates count
+as success.
 
-**LoTW nie jest obsługiwany** — wymaga podpisania rekordu kluczem prywatnym z certyfikatu
-TQSL, czego nie da się bezpiecznie zrobić na telefonie. Praktyczne obejście: eksport pliku
-ADIF i podpisanie na PC, albo synchronizacja LoTW po stronie Cloudloga.
+**LoTW is not supported.** It requires signing each record with the private key from a
+TQSL certificate, which cannot be done safely on a phone. Practical workaround: export
+the ADIF file and sign it on a PC, or let Cloudlog sync with LoTW.
 
-## Konfiguracja radia
+## Radio setup
 
-1. Telefon i radio w tej samej sieci WiFi (albo radio podłączone do hotspotu telefonu —
-   wtedy IP telefonu to zwykle `192.168.43.1`).
-2. W firmware X6100 ustaw adres docelowy UDP na **IP telefonu**, port **2237**.
-   Broadcast (`192.168.x.255`) też zadziała — aplikacja binduje się na `0.0.0.0`.
-3. W aplikacji: zakładka **Setup** → wpisz znak i lokator, włącz wybrane loggery,
-   potem **Monitor** → *Start listening*.
+1. Put the phone and the radio on the same WiFi network (or connect the radio to the
+   phone's hotspot; the phone's IP is then usually `192.168.43.1`).
+2. In the X6100 firmware, set the UDP destination to the **phone's IP**, port **2237**.
+   Broadcast (`192.168.x.255`) also works, since the app binds to `0.0.0.0`.
+3. In the app: **Setup** tab → enter your callsign and locator, enable the loggers you want,
+   then **Monitor** → *Start listening*.
 
-Jeśli firmware wysyła multicast (np. `224.0.0.1`), wpisz grupę w polu *Multicast group* —
-wtedy dodatkowo dołączany jest MulticastLock.
+If the firmware sends multicast (e.g. `224.0.0.1`), enter the group in the *Multicast group*
+field. The app then also joins it under a MulticastLock.
 
-## Praca w tle
+## Running in the background
 
-Usługa działa jako foreground service z powiadomieniem i trzyma `WIFI_MODE_FULL_LOW_LATENCY`,
-MulticastLock oraz partial WakeLock. Mimo to **wyłącz optymalizację baterii** dla aplikacji
-(Ustawienia → Aplikacje → HamLog Bridge → Bateria → Bez ograniczeń), inaczej producenci
-tacy jak Xiaomi/Samsung i tak potrafią uśpić socket.
+The service runs as a foreground service with a notification and holds
+`WIFI_MODE_FULL_LOW_LATENCY`, a MulticastLock and a partial WakeLock. Even so, **disable
+battery optimization** for the app (Settings → Apps → HamLog Bridge → Battery → Unrestricted);
+otherwise vendors such as Xiaomi or Samsung may still put the socket to sleep.
 
 ## Relay
 
-Pole *Relay datagrams to* przekazuje każdy odebrany pakiet bajt w bajt dalej, np.
-`192.168.1.10:2237, 192.168.1.20:2333`. Dzięki temu telefon może być „mostem" a GridTracker
-albo Log4OM na PC dalej dostaje ten sam strumień.
+The *Relay datagrams to* field forwards every received packet byte for byte, e.g.
+`192.168.1.10:2237, 192.168.1.20:2333`. This lets the phone act as a bridge while
+GridTracker or Log4OM on a PC keeps receiving the same stream.
 
-## Budowanie
+## Building
 
 ```bash
 # Android Studio Ladybug+ / AGP 8.6, JDK 17, Kotlin 2.0.21, minSdk 26
@@ -111,32 +112,32 @@ albo Log4OM na PC dalej dostaje ten sam strumień.
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Testy jednostkowe dekodera: `./gradlew test`
+Decoder unit tests: `./gradlew test`
 
-## Status weryfikacji
+## Verification status
 
-Warstwa protokołu (`wsjtx/`) i generator ADIF (`adif/`) zostały skompilowane i przetestowane
-na wygenerowanych, prawdziwych ładunkach QDataStream — przechodzą komplet asercji
-(offsety pól, konwersja Julian day → UTC, długości pól ADIF liczone w bajtach, tolerancja
-skróconych pakietów). Warstwy zależne od Androida (UI, service, Room, uploadery) nie zostały
-skompilowane w tym środowisku — brak Android SDK — więc pierwszy `./gradlew assembleDebug`
-może wymagać drobnych poprawek wersji zależności.
+The protocol layer (`wsjtx/`) and the ADIF generator (`adif/`) have been compiled and tested
+against generated, real QDataStream payloads and pass the full set of assertions
+(field offsets, Julian day → UTC conversion, ADIF field lengths counted in bytes, tolerance
+of truncated packets). The Android-dependent layers (UI, service, Room, uploaders) were not
+compiled in the environment where they were written (no Android SDK), so the first
+`./gradlew assembleDebug` may need minor dependency-version fixes.
 
-## Struktura
+## Structure
 
 ```
 app/src/main/java/pl/hamlogbridge/
-├── wsjtx/     QDataReader, WsjtxCodec, WsjtxMessage   ← protokół
+├── wsjtx/     QDataReader, WsjtxCodec, WsjtxMessage   ← protocol
 ├── net/       UdpListener, UdpRelay
-├── adif/      Adif                                    ← budowa/parsowanie rekordów
+├── adif/      Adif                                    ← building/parsing records
 ├── data/      Room (QsoEntity, UploadEntity), Settings, Repository
-├── upload/    LogTarget + 6 implementacji, UploadWorker, LocalAdifWriter
+├── upload/    LogTarget + 6 implementations, UploadWorker, LocalAdifWriter
 ├── service/   BridgeService, BootReceiver
 └── ui/        Monitor, Log, Setup (Compose)
 ```
 
-## Uwagi bezpieczeństwa
+## Security notes
 
-Hasła i klucze API trzymane są w DataStore w prywatnym katalogu aplikacji, bez szyfrowania.
-Jeśli to ma znaczenie w Twoim scenariuszu, warto podmienić `SettingsStore` na
-EncryptedSharedPreferences albo Android Keystore.
+Passwords and API keys are stored in DataStore in the app's private directory, unencrypted.
+If that matters for your use case, consider replacing `SettingsStore` with
+EncryptedSharedPreferences or the Android Keystore.
