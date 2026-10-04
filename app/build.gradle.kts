@@ -33,6 +33,16 @@ android {
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
     }
+
+    // Versioned file names so a downloaded APK says which release it is.
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val suffix = if (variant.buildType.name == "release") "" else "-${variant.buildType.name}"
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "HamLogBridge-v${variant.versionName}$suffix.apk"
+        }
+    }
 }
 
 dependencies {
